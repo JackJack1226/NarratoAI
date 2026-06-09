@@ -1,31 +1,43 @@
-import sys
+import json
+import os
+from pathlib import Path
 
-# Minimal TTS generation pipeline demo
-# This is a stub for the custom integration pipeline.
-# It will need to:
-# 1. Take a script (as a string or file path)
-# 2. Break it into segments.
-# 3. Call the TTS tool (using audiobook skill principles)
-# 4. Use ffmpeg to stitch.
+def generate_execution_plan(plan_path):
+    print(f"--- Generating Execution Plan: {plan_path} ---")
 
-def generate_tts_for_segment(text, filename, voice_id="narrator"):
-    # This would call the MCP tool 'audios_generation'
-    print(f"Generating TTS for: {text[:20]}... with voice {voice_id} -> {filename}.mp3")
+    if not os.path.exists(plan_path):
+        print(f"Error: Generation plan not found at {plan_path}")
+        return
 
-def stitch_audio_and_video(audio_files, video_file, output_file):
-    # This would call the editing subagent for ffmpeg
-    print(f"Stitching {len(audio_files)} audio segments and {video_file} into {output_file}")
+    with open(plan_path, "r", encoding="utf-8") as f:
+        plan = json.load(f)
+
+    # Output list of tasks for the agent
+    commands = []
+
+    for item in plan:
+        if item["type"] == "tts":
+            # Generate the MCP tool call string
+            cmd = f"audios_generation(texts=['{item['text']}'], voice_id='{item['voice_id']}', filenames=['{item['filename']}'])"
+            commands.append({"type": "tool", "call": cmd})
+        elif item["type"] == "original_audio":
+            # Track file existence
+            commands.append({"type": "file_check", "path": item["file_path"]})
+
+    # Generate final ffmpeg command
+    # Note: For production, this needs to be properly generated with timestamps
+    ffmpeg_cmd = "ffmpeg -i tts_output.mp3 -i original_video.mp4 -filter_complex '[0:a][1:a]amix=inputs=2' final_video.mp4"
+    commands.append({"type": "bash", "call": ffmpeg_cmd})
+
+    # Save plan to a temporary file for the agent to read
+    execution_plan_path = "E:/MyClaudeProject/outputs/execution_plan.json"
+    with open(execution_plan_path, "w", encoding="utf-8") as f:
+        json.dump(commands, f, ensure_ascii=False, indent=2)
+
+    print(f"Execution plan saved to {execution_plan_path}")
+    print("\n--- Execution Steps ---")
+    for cmd in commands:
+        print(cmd)
 
 if __name__ == "__main__":
-    script_segments = [
-        {"text": "黄金三秒开头。", "voice": "narrator"},
-        {"text": "核心逻辑解构。", "voice": "narrator"},
-        {"text": "强力结尾。", "voice": "narrator"}
-    ]
-
-    # 1. Generate audio segments
-    for i, segment in enumerate(script_segments):
-        generate_tts_for_segment(segment["text"], f"segment_{i}", segment["voice"])
-
-    # 2. Stitch
-    stitch_audio_and_video([f"segment_{i}" for i in range(len(script_segments))], "base_video.mp4", "final_video.mp4")
+    generate_execution_plan("E:/MyClaudeProject/outputs/generation_plan.json")
