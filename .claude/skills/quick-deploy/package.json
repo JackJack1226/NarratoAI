@@ -1,0 +1,24 @@
+{
+  "name": "quick-deploy-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone Quick Deploy MVP: run a GitHub repo locally and return a live localhost URL.",
+  "main": "quick-deploy.js",
+  "bin": {
+    "quick-deploy": "./quick-deploy.js"
+  },
+  "scripts": {
+    "deploy": "node quick-deploy.js",
+    "check": "node --check quick-deploy.js && node --check deploy-core.js",
+    "smoke:args": "node quick-deploy.js",
+    "smoke:invalid": "node quick-deploy.js not-a-url"
+  },
+  "keywords": [
+    "deploy",
+    "github",
+    "localhost",
+    "plugin",
+    "skill"
+  ],
+  "license": "MIT"
+}
