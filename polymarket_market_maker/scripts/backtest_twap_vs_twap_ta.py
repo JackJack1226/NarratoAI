@@ -150,7 +150,7 @@ def replay_trade(record, feed: CryptoFeed | None = None) -> dict | None:
 
     remaining = float(window_end_ts - int(time.time()))
     if remaining <= 0:
-        remaining = 15.0  # simulate being 15s from expiry
+        remaining = 30.0  # simulate being 30s from expiry (safe above the 15s floor)
 
     up_book = make_book(0.5)
     down_book = make_book(0.5)
@@ -168,6 +168,12 @@ def replay_trade(record, feed: CryptoFeed | None = None) -> dict | None:
 
     twap_result = twap_engine.decide(asset, snapshot, window_start_ts, up_book, down_book, remaining)
     ta_result = twap_ta_engine.decide(asset, snapshot, window_start_ts, up_book, down_book, remaining)
+
+    # Debug: why was the decision NO_TRADE?
+    if twap_result.outcome is None and ta_result.outcome is None:
+        print(f"  [{i+1}/{len(trades)}] {asset} {record.slug[-10:]}: twap_reason={twap_result.reason!r}, ta_reason={ta_result.reason!r}")
+        errors += 1
+        return None
 
     return {
         "asset": asset,
