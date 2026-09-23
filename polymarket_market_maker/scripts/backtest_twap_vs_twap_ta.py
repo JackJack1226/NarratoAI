@@ -198,6 +198,8 @@ def replay_trade(record, feed: CryptoFeed | None = None) -> dict | None:
         "original_won": record.won,
         "original_pnl": float(record.pnl_net) if record.pnl_net else None,
         "klines_count": len(klines_window),
+        # Debug: indicator bias
+        "ta_bias": float(ta_result.momentum_signal.split("bias=")[1].split(")")[0]) if ta_result.momentum_signal and "bias=" in str(ta_result.momentum_signal) else None,
     }
 
 
@@ -223,6 +225,14 @@ def summarize(results: list[dict]) -> None:
     agreed = [r for r in both if r["twap_outcome"] == r["ta_outcome"]]
     n_both = len(both)
     print(f"\nModel agreement: {len(agreed)}/{n_both} ({len(agreed)/n_both*100 if n_both else 0:.1f}%)")
+
+    # Check bias distribution
+    biases = [r.get("ta_bias") for r in results if r.get("ta_bias") is not None]
+    if biases:
+        non_zero = sum(1 for b in biases if abs(b) > 0.01)
+        print(f"TA bias: {len(biases)} computed, {non_zero} non-zero (range: {min(biases):.3f} to {max(biases):.3f})")
+        zero_biases = sum(1 for b in biases if abs(b) < 0.01)
+        print(f"  Zero/near-zero bias (no effect): {zero_biases}/{len(biases)}")
 
     # Disagreements
     disagreed = [r for r in both if r["twap_outcome"] != r["ta_outcome"]]
