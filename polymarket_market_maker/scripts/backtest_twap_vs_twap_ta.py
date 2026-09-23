@@ -52,19 +52,18 @@ def _get_proxies() -> dict:
     return proxies
 
 
-def fetch_historical_klines(symbol: str, start_ms: int, limit: int = 1000) -> list[dict] | None:
-    """Fetch historical 1m klines from Binance for a given time window.
-
-    start_ms: milliseconds since epoch — fetches klines UP TO this timestamp.
-    Returns list of raw kline dicts or None on failure.
-    """
+def fetch_historical_klines(symbol: str, start_ms: int, end_ms: int | None = None, limit: int = 1000) -> list[dict] | None:
+    """Fetch historical 1m klines from Binance for a given time range."""
     sym = symbol.upper()
     last_exc = None
     for host in BINANCE_HOSTS:
         try:
+            params = {"symbol": sym, "interval": "1m", "startTime": start_ms, "limit": limit}
+            if end_ms:
+                params["endTime"] = end_ms
             resp = requests.get(
                 f"{host}/api/v3/klines",
-                params={"symbol": sym, "interval": "1m", "startTime": start_ms, "limit": limit},
+                params=params,
                 timeout=(5, 15),
             )
             if resp.status_code in (451, 403):
@@ -124,33 +123,42 @@ def make_book(price: float) -> OrderBook:
 
 def replay_trade(record, feed: CryptoFeed | None = None) -> dict | None:
     """Replay one shadow trade using historical klines from the decision moment."""
+    import datetime
     asset = record.asset
     symbol = f"{asset}USDT"
     window_start_ts = int(record.window_start_ts)
     window_end_ts = int(record.window_end_ts)
-    # Decision was made near window_end_ts (a few seconds before expiry)
-    # Fetch klines ending at decision time (use end_ts - 10s to be safe)
-    decision_ms = (window_end_ts - 10) * 1000
-    start_ms = max(0, decision_ms - 60 * 60 * 1000)  # up to 1h of history
 
-    klines_raw = fetch_historical_klines(symbol, start_ms, limit=1000)
+    # Decision was made near window_end_ts (a few seconds before expiry)
+    decision_ts = window_end_ts - 10  # 10 seconds before expiry
+    decision_ms = decision_ts * 1000
+
+    # For historical trades, we need to fetch klines that include the window period
+    # Fetch from window start - 1 hour to decision time
+    start_ms = max(0, window_start_ts * 1000 - 60 * 60 * 1000)  # 1 hour before window start
+    end_ms = decision_ms
+
+    klines_raw = fetch_historical_klines(symbol, start_ms, end_ms=end_ms, limit=200)
     if not klines_raw:
         return {"error": "no klines", "asset": asset, "slug": record.slug}
 
-    # Filter to klines BEFORE the decision time
-    klines_before = [k for k in klines_raw if k[0] <= decision_ms]
-    if len(klines_before) < 15:
-        return {"error": f"insufficient klines: {len(klines_before)}", "asset": asset, "slug": record.slug}
+    # Filter to klines within the window period (window_start to decision time)
+    klines_window = [k for k in klines_raw if window_start_ts * 1000 <= k[0] <= decision_ms]
+    if len(klines_window) < 15:
+        # Fallback: use all available klines up to decision time
+        klines_window = [k for k in klines_raw if k[0] <= decision_ms]
+
+    if len(klines_window) < 15:
+        return {"error": f"insufficient klines: {len(klines_window)}", "asset": asset, "slug": record.slug}
 
     # Build snapshot using the LAST known price before decision
-    last_close = D(str(klines_before[-1][4]))
-    snapshot = build_snapshot_from_klines(symbol, klines_before, last_close)
+    last_close = D(str(klines_window[-1][4]))
+    snapshot = build_snapshot_from_klines(symbol, klines_window, last_close)
     if snapshot is None:
         return {"error": "snapshot build failed", "asset": asset, "slug": record.slug}
 
-    remaining = float(window_end_ts - int(time.time()))
-    if remaining <= 0:
-        remaining = 30.0  # simulate being 30s from expiry (safe above the 15s floor)
+    # For historical replay, simulate being 30s from expiry
+    remaining = 30.0
 
     up_book = make_book(0.5)
     down_book = make_book(0.5)
@@ -189,7 +197,7 @@ def replay_trade(record, feed: CryptoFeed | None = None) -> dict | None:
         "original_outcome": record.action,
         "original_won": record.won,
         "original_pnl": float(record.pnl_net) if record.pnl_net else None,
-        "klines_count": len(klines_before),
+        "klines_count": len(klines_window),
     }
 
 
